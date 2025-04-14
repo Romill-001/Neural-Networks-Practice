@@ -33,10 +33,8 @@ print(f"MSE {mse_metric(y, y_p)}")
 print(f"RMSE {rmse_metric(y, y_p)}")
 print(f"MAE {mae_metric(y, y_p)}")
 print(f"MAPE {mape_metric(y, y_p)}")
-print(f"Веса w: {w}, смещение b {b}")
 
-
-plt.scatter(np.arange(len(X)), y)
-plt.plot(np.arange(len(X)), y_p, "-r")
+plt.scatter(y, y_p,2)
+plt.plot(y_p, y_p, "r")
 
 plt.show()

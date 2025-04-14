@@ -31,7 +31,7 @@ def regression_solvation(x : np.array, y : np.array):
     X^Ty = X^TXw -> w = (X^TX)^(-1)X^Ty\n
     """
     w = np.linalg.solve(x.T @ x, x.T @ y)
-    return w# возвращаем w
+    return w
 
 def main():
     x = np.arange(1, 10, 0.1)
