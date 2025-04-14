@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from utils import *
 
 def polinom(x : float, w : np.array):
     """
@@ -35,19 +36,55 @@ def regression_solvation(x : np.array, y : np.array):
 
 def main():
     x = np.arange(1, 10, 0.1)
-    noise = np.random.normal(0, 0.05, len(x))
+    noise = np.random.normal(0, 0.01, len(x))
     y = np.log(x)
     y += noise
-
-    degree = 5
-    design_matrix = create_design_matrix(x, degree)
-    w = regression_solvation(design_matrix, y)
-
-    x_new = np.arange(1, 10, 0.01)
-    y_pred = np.array([polinom(x, w) for x in x_new])
     
-    plt.plot(x_new, np.log(x_new), '-.')
-    plt.plot(x_new, y_pred)
+    x_train, y_train = x[:69], y[:69]
+    x_test, y_test = x[70:], y[70:]
+    degree = 5
+    design_matrix = create_design_matrix(x_train, degree)
+    w = regression_solvation(design_matrix, y_train)
+
+    
+    y_pred = np.array([polinom(x, w) for x in x_test])
+    
+    # arr_train = []
+    # arr_test = []
+    # for deg in range(1, 11):
+    #     design_matrix = create_design_matrix(x_train, deg)
+    #     w = regression_solvation(design_matrix, y_train)
+    #     y_pred_train = np.array([polinom(x, w) for x in x_train])
+    #     arr_train.append(mse_metric(y_train, y_pred_train))
+    #     y_pred_test = np.array([polinom(x, w) for x in x_test])
+    #     arr_test.append(mse_metric(y_test, y_pred_test))
+    
+
+    # plt.plot(np.arange(1, 11, 1), arr_train, '-r', label="Ошибка трейна")
+    # plt.plot(np.arange(1, 11, 1), arr_test, '-b', label="Ошибка тестирования")
+    # plt.grid()
+    # plt.legend()
+    # plt.xlim((0, 6))
+    # plt.ylim((0,0.5))
+    # plt.show()
+
+
+    # fig, axes = plt.subplots(2, 3, figsize=(20, 10))
+    # for i, deg in enumerate(range(5, 11)):
+    #     ax = axes.flat[i]
+    #     design_matrix = create_design_matrix(x_train, deg)
+    #     w = regression_solvation(design_matrix, y_train)
+    #     y_pred = np.array([polinom(x, w) for x in x_test])
+    #     ax.plot(x_test, y_test, '-r', label='Истинные значения')
+    #     ax.plot(x_test, y_pred, label='Предсказанные значения для степени {}'.format(deg))
+    #     ax.set_title(f'Полином степени {deg}')
+    #     ax.grid()
+    #     ax.legend()
+
+    plt.plot(x_test, y_test, '-r', label='Истинные значения')
+    plt.plot(x_test, y_pred, label='Предсказанные значения для степени {}'.format(degree))
+    plt.grid()
+    plt.legend()
     plt.show()
 
 
