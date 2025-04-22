@@ -8,14 +8,17 @@ class LinearClassifier:
         self.w = None
         self.b = None
     
+    def _sigmoid(self, z):
+        return 1 / (1 + np.exp(-z))
+    
     def fit(self, X, y):
-        _, n_features = X.shape
+        _ , n_features = X.shape
         self.w = np.zeros(n_features)
         self.b = 0
 
         for _ in range(self.iters):
             cls = np.dot(X, self.w) + self.b
-            y_pred = np.where(cls >= 0, 1, 0)
+            y_pred = self._sigmoid(cls)
             error = y_pred - y
             dw = (2 / len(X)) * np.dot(X.T, error) + 2 * self.lambda_ * self.w
             db = (2 / len(X)) * np.sum(error)
