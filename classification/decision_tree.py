@@ -2,8 +2,10 @@ import numpy as np
 from collections import Counter
 
 class Node:
-    def __init__(self, feature=None, threshold=None, left_tree=None, right_tree=None, value=None):
+    def __init__(self, feature=None, feature_name=None, threshold=None, 
+                 left_tree=None, right_tree=None, value=None):
         self.feature = feature
+        self.feature_name = feature_name
         self.threshold = threshold
         self.left_tree = left_tree
         self.right_tree = right_tree
@@ -13,10 +15,11 @@ class Node:
         return self.value is not None
 
 class DecisionTree:
-    def __init__(self, cf):
+    def __init__(self, cf, feature_names=None):
         self.max_depth = cf["max_depth"]
         self.min_split = cf["min_split"]
         self.root = None
+        self.feature_names = feature_names
     
     def fit(self, X, y):
         self.root = self._build_tree(X, y)
@@ -38,24 +41,29 @@ class DecisionTree:
         classes = len(np.unique(y))
 
         if d >= self.max_depth or rows < self.min_split or classes == 1:
-            val = Counter(y).most_common(1)[0][0]
+            val = Counter(y).most_common(1)[0][0] if len(y) > 0 else 0
             return Node(value=val)
         
         best_f, best_t = self._split(X, y)
 
         if best_f is None:
-            val = Counter(y).most_common(1)[0][0]
+            val = Counter(y).most_common(1)[0][0] if len(y) > 0 else 0
             return Node(value=val)
         
         L = X[:, best_f] <= best_t
         R = ~L
 
+        if np.sum(L) == 0 or np.sum(R) == 0:
+            val = Counter(y).most_common(1)[0][0] if len(y) > 0 else 0
+            return Node(value=val)
+        
         left_tree = self._build_tree(X[L], y[L], d + 1)
         right_tree = self._build_tree(X[R], y[R], d + 1)
 
-        return Node(feature=best_f, threshold=best_t, left_tree=left_tree, right_tree=right_tree)
+        feature_name = self.feature_names[best_f] if self.feature_names else f"Feature_{best_f}"
+        return Node(feature=best_f, feature_name=feature_name, 
+                   threshold=best_t, left_tree=left_tree, right_tree=right_tree)
     
-    #перебирая все возможные уникальные значения в наборе находим лучушую фичу и её порог
     def _split(self, X, y):
         best_gain = -1
         best_f, best_t = None, None
@@ -71,8 +79,6 @@ class DecisionTree:
         
         return best_f, best_t
     
-    #используем вычитание из всего набора, поскольку наша цель найти прирост полезной информации.
-    #если прирост случается, то двигаемся к следующему порогу
     def _split_factor(self, X, y, feature_ind, threshold):
         total_gini = self._gini(y)
         L = X[:, feature_ind] <= threshold
@@ -91,7 +97,34 @@ class DecisionTree:
             return 0
         p = np.bincount(y) / len(y)
         return 1 - np.sum(p**2)
-
-
-if __name__ == "__main__":
-    pass
+    
+    def print_feature_importance(self, node=None, indent=""):
+        if node is None:
+            node = self.root
+        
+        if node.is_leaf():
+            print(f"{indent}Leaf: class={node.value}")
+            return
+        
+        print(f"{indent}Decision: {node.feature_name} <= {node.threshold:.3f}")
+        print(f"{indent}|-- True:")
+        self.print_feature_importance(node.left_tree, indent + "|  ")
+        print(f"{indent}|__ False:")
+        self.print_feature_importance(node.right_tree, indent + "   ")
+    
+    def get_feature_thresholds(self):
+        thresholds = {}
+        
+        def traverse(node):
+            if node is None or node.is_leaf():
+                return
+            
+            if node.feature_name not in thresholds:
+                thresholds[node.feature_name] = []
+            thresholds[node.feature_name].append(node.threshold)
+            
+            traverse(node.left_tree)
+            traverse(node.right_tree)
+        
+        traverse(self.root)
+        return thresholds
