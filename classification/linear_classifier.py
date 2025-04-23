@@ -29,4 +29,5 @@ class LinearClassifier:
     
     def predict(self, X):
         cls = np.dot(X, self.w) + self.b
-        return np.where(cls >= 0, 1, 0)
+        prob = self._sigmoid(cls)
+        return np.where(prob >= 0.5, 1, 0)
