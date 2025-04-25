@@ -15,11 +15,12 @@ class Node:
         return self.value is not None
 
 class DecisionTree:
-    def __init__(self, cf, feature_names=None):
+    def __init__(self, cf, feature_names=None, mode = 'classification'):
         self.max_depth = cf["max_depth"]
         self.min_split = cf["min_split"]
         self.root = None
         self.feature_names = feature_names
+        self.mode = mode
     
     def fit(self, X, y):
         self.root = self._build_tree(X, y)
@@ -40,21 +41,30 @@ class DecisionTree:
         rows, features = X.shape
         classes = len(np.unique(y))
 
-        if d >= self.max_depth or rows < self.min_split or classes == 1:
-            val = Counter(y).most_common(1)[0][0] if len(y) > 0 else 0
+        if d >= self.max_depth or rows < self.min_split or (self.mode == 'classification' and classes == 1):
+            if self.mode == 'classification':
+                val = Counter(y).most_common(1)[0][0] if len(y) > 0 else 0
+            else:
+                val = np.mean(y)
             return Node(value=val)
         
         best_f, best_t = self._split(X, y)
 
         if best_f is None:
-            val = Counter(y).most_common(1)[0][0] if len(y) > 0 else 0
+            if self.mode == 'classification':
+                val = Counter(y).most_common(1)[0][0] if len(y) > 0 else 0
+            else:
+                val = np.mean(y)
             return Node(value=val)
         
         L = X[:, best_f] <= best_t
         R = ~L
 
         if np.sum(L) == 0 or np.sum(R) == 0:
-            val = Counter(y).most_common(1)[0][0] if len(y) > 0 else 0
+            if self.mode == 'classification':
+                val = Counter(y).most_common(1)[0][0] if len(y) > 0 else 0
+            else:
+                val = np.mean(y)
             return Node(value=val)
         
         left_tree = self._build_tree(X[L], y[L], d + 1)
@@ -80,7 +90,10 @@ class DecisionTree:
         return best_f, best_t
     
     def _split_factor(self, X, y, feature_ind, threshold):
-        total_gini = self._gini(y)
+        if self.mode == 'classification':
+            total_facor = self._gini(y)
+        else:
+            total_facor = self._mse(y)
         L = X[:, feature_ind] <= threshold
         R = ~L
 
@@ -90,7 +103,10 @@ class DecisionTree:
         Ln = len(y[L]) / len(y)
         Rn = len(y[R]) / len(y)
 
-        return total_gini - (Ln * self._gini(y[L]) + Rn * self._gini(y[R]))  
+        if self.mode == 'classification':
+            return total_facor - (Ln * self._gini(y[L]) + Rn * self._gini(y[R]))
+        else:
+            return total_facor - (Ln * self._mse(y[L]) + Rn * self._mse(y[R]))
 
     def _gini(self, y):
         if len(y) == 0:
@@ -128,3 +144,9 @@ class DecisionTree:
         
         traverse(self.root)
         return thresholds
+    
+    def _mse(self, y):
+        if len(y) == 0:
+            return 0
+        m = np.mean(y)
+        return np.mean((y - m) ** 2)

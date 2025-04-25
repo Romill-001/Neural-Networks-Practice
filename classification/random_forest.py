@@ -4,13 +4,14 @@ from joblib import Parallel, delayed
 from decision_tree import DecisionTree
 
 class RandomForestClassifier:
-    def __init__(self, num_trees=10, num_features="auto", cf=None):
+    def __init__(self, num_trees=10, num_features="auto", cf=None, mode = 'classification'):
         self.num_trees = num_trees
         self.num_features = num_features
         self.cf = cf if cf is not None else {"max_depth": 10, "min_split": 2}
         self.trees = []
         self.feature_subsets = []
         self.feature_names = None
+        self.mode = mode
 
     def fit(self, X, y):
         if isinstance(X, pd.DataFrame):
@@ -46,7 +47,7 @@ class RandomForestClassifier:
 
     def _train_tree(self, X, y, feature_indices):
         X_subset = X[:, feature_indices]
-        tree = DecisionTree(self.cf)
+        tree = DecisionTree(self.cf,mode=self.mode)
         tree.fit(X_subset, y)
         return tree
 
@@ -57,4 +58,7 @@ class RandomForestClassifier:
             tree.predict(X_np[:, cols])
             for tree, cols in zip(self.trees, self.feature_subsets)
         ])
-        return np.apply_along_axis(lambda x: np.bincount(x).argmax(), axis=0, arr=tree_preds)
+        if self.mode == 'classification':
+            return np.apply_along_axis(lambda x: np.bincount(x).argmax(), axis=0, arr=tree_preds)
+        else:
+            return np.mean(tree_preds)

@@ -6,28 +6,29 @@ class LinearClassifier:
         self.iters = iters
         self.lambda_ = lambda_
         self.w = None
-        self.b = None
     
     def _sigmoid(self, z):
         return 1 / (1 + np.exp(-z))
     
+    def _add_bias(self, X):
+        return np.column_stack([np.ones(len(X)), X]) 
+    
     def fit(self, X, y):
-        _ , n_features = X.shape
+        X = self._add_bias(X)
+        s , n_features = X.shape
         self.w = np.zeros(n_features)
-        self.b = 0
 
         for _ in range(self.iters):
-            cls = np.dot(X, self.w) + self.b
+            cls = np.dot(X, self.w)
             y_pred = self._sigmoid(cls)
             error = y_pred - y
-            dw = (2 / len(X)) * np.dot(X.T, error) + 2 * self.lambda_ * self.w
-            db = (2 / len(X)) * np.sum(error)
+            dw = (1 / s) * np.dot(X.T, error)
+            dw[1:] += (self.lambda_ / s) * self.w[1:]
 
             self.w -= self.learning_rate * dw
-            self.b -= self.learning_rate * db
 
-    
     def predict(self, X):
-        cls = np.dot(X, self.w) + self.b
+        X = self._add_bias(X)
+        cls = np.dot(X, self.w)
         prob = self._sigmoid(cls)
         return np.where(prob >= 0.5, 1, 0)
