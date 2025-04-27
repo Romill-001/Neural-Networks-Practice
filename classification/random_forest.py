@@ -61,4 +61,4 @@ class RandomForestClassifier:
         if self.mode == 'classification':
             return np.apply_along_axis(lambda x: np.bincount(x).argmax(), axis=0, arr=tree_preds)
         else:
-            return np.mean(tree_preds)
+            return np.mean(tree_preds, axis=0)
