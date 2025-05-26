@@ -1,6 +1,8 @@
 import numpy as np
 from collections import Counter
 
+# класс ноды, которая содержит в себе ссылки на правую и левую подветки и также показыает
+# является ли ветка
 class Node:
     def __init__(self, feature=None, feature_name=None, threshold=None, 
                  left_tree=None, right_tree=None, value=None):
@@ -16,8 +18,9 @@ class Node:
 
 class DecisionTree:
     def __init__(self, cf, feature_names=None, mode = 'classification'):
-        self.max_depth = cf["max_depth"]
-        self.min_split = cf["min_split"]
+        self.cf = cf if cf is not None else {"max_depth": 10, "min_split": 2}
+        self.max_depth = self.cf["max_depth"]
+        self.min_split = self.cf["min_split"]
         self.root = None
         self.feature_names = feature_names
         self.mode = mode
@@ -41,7 +44,8 @@ class DecisionTree:
         rows, features = X.shape
         classes = len(np.unique(y))
 
-        if d >= self.max_depth or rows < self.min_split or (self.mode == 'classification' and classes == 1):
+        if d >= self.max_depth or rows < self.min_split or \
+        (self.mode == 'classification' and classes == 1):
             if self.mode == 'classification':
                 val = Counter(y).most_common(1)[0][0] if len(y) > 0 else 0
             else:

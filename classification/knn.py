@@ -10,7 +10,7 @@ class KNNClassifier:
     def fit(self, X, y):
         self.X = X
         self.y = y
-    
+    # убрать корень и квадрать попробовать найти среднее квадратное отклонение
     def _calculate_dist(self, x1, x2):
         return np.sqrt(np.sum((x1 - x2) ** 2))
     

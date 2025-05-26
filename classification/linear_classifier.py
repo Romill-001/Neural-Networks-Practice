@@ -8,6 +8,8 @@ class LinearClassifier:
         self.w = None
     
     def _sigmoid(self, z):
+        z = np.asarray(z, dtype=np.float64)
+        z = np.clip(z, -500, 500)
         return 1 / (1 + np.exp(-z))
     
     def _add_bias(self, X):
@@ -15,9 +17,10 @@ class LinearClassifier:
     
     def fit(self, X, y):
         X = self._add_bias(X)
-        s , n_features = X.shape
-        self.w = np.zeros(n_features)
-
+        X = np.asarray(X, dtype=np.float64)
+        y = np.asarray(y, dtype=np.float64)
+        s, n_features = X.shape
+        self.w = np.zeros(n_features, dtype=np.float64)
         for _ in range(self.iters):
             cls = np.dot(X, self.w)
             y_pred = self._sigmoid(cls)
