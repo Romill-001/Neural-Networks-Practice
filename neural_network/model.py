@@ -1,3 +1,12 @@
+from torchvision.datasets import MNIST
+from torchvision import transforms
+import matplotlib.pyplot as plt
+import torch
+from torch.utils.data import Dataset, DataLoader
+import pytorch_lightning as pl
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
 import numpy as np
 
 
@@ -169,3 +178,280 @@ class NeuralNetwork:
             return np.argmax(output, axis=1)
         else:
             return output
+        
+class LinearDataset(Dataset):
+    def __init__(self, n_samples=1000, noise=0.1):
+        self.x = np.random.rand(n_samples, 1) * 10
+        self.y = self.x + np.random.normal(0, noise, size=(n_samples, 1))
+        self.x = self.x.astype(np.float32)
+        self.y = self.y.astype(np.float32)
+    
+    def __len__(self):
+        return len(self.x)
+    
+    def __getitem__(self, idx):
+        return self.x[idx], self.y[idx]
+
+class LinearModel(pl.LightningModule):
+    def __init__(self):
+        super().__init__()
+        self.net = torch.nn.Sequential(
+            torch.nn.Linear(1, 10),
+            torch.nn.ReLU(),
+            torch.nn.Linear(10, 1)
+        )
+        self.loss_fn = torch.nn.MSELoss()
+    
+    def forward(self, x):
+        return self.net(x)
+    
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        y_pred = self(x)
+        loss = self.loss_fn(y_pred, y)
+        self.log('train_loss', loss)
+        return loss
+    
+    def configure_optimizers(self):
+        return torch.optim.Adam(self.parameters(), lr=0.01)
+    
+class SinDataset(Dataset):
+    def __init__(self, n_samples=1000, noise=0.05):
+        self.x = np.random.rand(n_samples, 1) * 10
+        self.y = np.sin(self.x) + np.random.normal(0, noise, size=(n_samples, 1))
+        self.x = self.x.astype(np.float32)
+        self.y = self.y.astype(np.float32)
+    
+    def __len__(self):
+        return len(self.x)
+    
+    def __getitem__(self, idx):
+        return self.x[idx], self.y[idx]
+
+class SinModel(pl.LightningModule):
+    def __init__(self):
+        super().__init__()
+        self.net = torch.nn.Sequential(
+            torch.nn.Linear(1, 64),
+            torch.nn.ReLU(),
+            torch.nn.Linear(64, 64),
+            torch.nn.ReLU(),
+            torch.nn.Linear(64, 1)
+        )
+        self.loss_fn = torch.nn.MSELoss()
+    
+    def forward(self, x):
+        return self.net(x)
+    
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        y_pred = self(x)
+        loss = self.loss_fn(y_pred, y)
+        self.log('train_loss', loss)
+        return loss
+    
+    def configure_optimizers(self):
+        return torch.optim.Adam(self.parameters(), lr=0.001)
+    
+class HousePricesDataset(Dataset):
+    def __init__(self, train=True):
+
+        train_df = pd.read_csv("./data/train_reg.csv")
+        
+        y = np.array(train_df["SalePrice"]).reshape(-1, 1)
+        X = train_df.drop(["Id", "SalePrice"], axis=1)
+        X = X.select_dtypes(include=['float64', 'int64']).fillna(0)
+        self.feature_names = X.columns.tolist()
+
+        self.X_scaler = StandardScaler()
+        self.y_scaler = StandardScaler()
+
+        X = self.X_scaler.fit_transform(X)
+        y = self.y_scaler.fit_transform(y)
+        
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42)
+        
+        if train:
+            self.X = torch.tensor(X_train, dtype=torch.float32)
+            self.y = torch.tensor(y_train, dtype=torch.float32)
+        else:
+            self.X = torch.tensor(X_test, dtype=torch.float32)
+            self.y = torch.tensor(y_test, dtype=torch.float32)
+    
+    def __len__(self):
+        return len(self.X)
+    
+    def __getitem__(self, idx):
+        return self.X[idx], self.y[idx]
+    
+    def get_feature_names(self):
+        return self.feature_names
+    
+    def inverse_transform_y(self, y_tensor):
+        if isinstance(y_tensor, torch.Tensor):
+            y_tensor = y_tensor.cpu().numpy()
+
+        y_tensor = y_tensor.reshape(-1, 1)
+
+        return self.y_scaler.inverse_transform(y_tensor)
+
+class HousePriceModel(pl.LightningModule):
+    def __init__(self, input_size):
+        super().__init__()
+        self.net = torch.nn.Sequential(
+            torch.nn.Linear(input_size, 128),
+            torch.nn.ReLU(),
+            torch.nn.Linear(128, 64),
+            torch.nn.ReLU(),
+            torch.nn.Linear(64, 32),
+            torch.nn.ReLU(),
+            torch.nn.Linear(32, 1)
+        )
+        self.loss_fn = torch.nn.MSELoss()
+    
+    def forward(self, x):
+        return self.net(x)
+    
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        y_pred = self(x)
+        loss = self.loss_fn(y_pred, y)
+        self.log('train_loss', loss)
+        return loss
+    
+    def test_step(self, batch, batch_idx):
+        x, y = batch
+        y_pred = self(x)
+        loss = self.loss_fn(y_pred, y)
+        preds = torch.argmax(y_pred, dim=1)
+        self.log('test_loss', loss)
+        return {'predictions': preds, 'targets': y}
+
+    def on_test_start(self):
+        self.all_preds = []
+        self.all_targets = []
+
+    def on_test_batch_end(self, outputs, batch, batch_idx):
+        preds = outputs["predictions"]
+        targets = outputs["targets"]
+        self.all_preds.append(preds)
+        self.all_targets.append(targets)
+
+    def on_test_epoch_end(self):
+        all_preds = torch.cat(self.all_preds)
+        all_targets = torch.cat(self.all_targets)
+
+        self.test_predictions = all_preds
+        self.test_targets = all_targets
+
+    
+    def configure_optimizers(self):
+        return torch.optim.Adam(self.parameters(), lr=0.001)
+    
+class TitanicDataset(Dataset):
+    def __init__(self, train=True):
+        data = pd.read_csv("./data/train.csv")
+
+        data = data.drop(["PassengerId", "Name", "Age", "Ticket", "Fare", "Cabin"],axis=1)
+        data = pd.get_dummies(data=data, columns=['Sex', 'Embarked'], prefix=['sex', 'embarked'])
+
+        X = data.drop('Survived',axis=1)
+        y = data['Survived']
+        
+        scaler = StandardScaler()
+        X = scaler.fit_transform(X)
+        
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42)
+        
+        if train:
+            self.x = X_train.astype(np.float32)
+            self.y = y_train.astype(np.int64)
+        else:
+            self.x = X_test.astype(np.float32)
+            self.y = y_test.astype(np.int64)
+    
+    def __len__(self):
+        return len(self.x)
+    
+    def __getitem__(self, idx):
+        return self.x[idx], self.y[idx]
+
+class TitanicModel(pl.LightningModule):
+    def __init__(self, input_size=6):
+        super().__init__()
+        self.net = torch.nn.Sequential(
+            torch.nn.Linear(input_size, 32),
+            torch.nn.ReLU(),
+            torch.nn.Linear(32, 16),
+            torch.nn.ReLU(),
+            torch.nn.Linear(16, 2)
+        )
+        self.loss_fn = torch.nn.CrossEntropyLoss()
+    
+    def forward(self, x):
+        return self.net(x)
+    
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        y_pred = self(x)
+        loss = self.loss_fn(y_pred, y)
+        self.log('train_loss', loss)
+        return loss
+    
+    def test_step(self, batch, batch_idx):
+        x, y = batch
+        y_pred = self(x)
+        loss = self.loss_fn(y_pred, y)
+        preds = torch.argmax(y_pred, dim=1)
+        self.log('test_loss', loss)
+        return {'predictions': preds, 'targets': y}
+    
+    def configure_optimizers(self):
+        return torch.optim.Adam(self.parameters(), lr=0.001)
+
+class MNISTDataset(Dataset):
+    def __init__(self, train=True):
+        self.mnist = MNIST(root='./data', train=train, download=True,
+                          transform=transforms.ToTensor())
+    
+    def __len__(self):
+        return len(self.mnist)
+    
+    def __getitem__(self, idx):
+        x, y = self.mnist[idx]
+        return x.view(-1), y
+
+class MNISTModel(pl.LightningModule):
+    def __init__(self):
+        super().__init__()
+        self.net = torch.nn.Sequential(
+            torch.nn.Linear(784, 256),
+            torch.nn.ReLU(),
+            torch.nn.Linear(256, 128),
+            torch.nn.ReLU(),
+            torch.nn.Linear(128, 10)
+        )
+        self.loss_fn = torch.nn.CrossEntropyLoss()
+    
+    def forward(self, x):
+        return self.net(x)
+    
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        y_pred = self(x)
+        loss = self.loss_fn(y_pred, y)
+        self.log('train_loss', loss)
+        return loss
+    
+    def test_step(self, batch, batch_idx):
+        x, y = batch
+        y_pred = self(x)
+        loss = self.loss_fn(y_pred, y)
+        preds = torch.argmax(y_pred, dim=1)
+        self.log('test_loss', loss)
+        return {'predictions': preds, 'targets': y}
+    
+    def configure_optimizers(self):
+        return torch.optim.Adam(self.parameters(), lr=0.001)

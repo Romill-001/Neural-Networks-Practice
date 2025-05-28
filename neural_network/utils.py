@@ -1,3 +1,5 @@
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, confusion_matrix, ConfusionMatrixDisplay
+from sklearn.metrics import classification_report, mean_squared_error, r2_score
 import numpy as np
 
 def accuracy(y_true, y_pred):
