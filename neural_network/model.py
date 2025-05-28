@@ -2,7 +2,7 @@ import numpy as np
 
 
 class NeuralNetwork:
-    def __init__(self, layer_sizes, task='regression', init_method='xavier', lr=0.01):
+    def __init__(self, layer_sizes, task='regression', init_method='xavier', lr=0.01, activation = 'relu'):
         """
         :param layer_sizes: list of int, например [input_size, hidden1, ..., output_size]
         :param task: 'regression', 'binary_classification', 'multiclass_classification'
@@ -15,6 +15,7 @@ class NeuralNetwork:
         self.task = task
         self.parameters = {}
         self.cache = {}
+        self.activation = activation
 
         for i in range(1, self.L):
             if init_method == 'xavier':
@@ -26,6 +27,22 @@ class NeuralNetwork:
             self.parameters[f'W{i}'] = np.random.normal(0, scale, size=(layer_sizes[i-1], layer_sizes[i]))
             self.parameters[f'b{i}'] = np.zeros((1, layer_sizes[i]))
 
+    def _activate(self, x):
+        if self.activation == 'relu':
+            return self._relu(x)
+        elif self.activation == 'tanh':
+            return np.tanh(x)
+        else:
+            raise ValueError("Неизвестная активация")
+        
+    def _activate_derivative(self, x):
+        if self.activation == 'relu':
+            return self._relu_derivative(x)
+        elif self.activation == 'tanh':
+            return 1 - np.tanh(x) ** 2
+        else:
+            raise ValueError("Неизвестная активация")
+        
     def _sigmoid(self, x):
         return 1 / (1 + np.exp(-x))
 
@@ -51,7 +68,7 @@ class NeuralNetwork:
         loss = -np.mean(np.sum(y_true * np.log(y_pred), axis=1))
         return loss
 
-    def forward(self, X):
+    def _forward(self, X):
         self.cache['A0'] = X
         A_prev = X
 
@@ -59,7 +76,7 @@ class NeuralNetwork:
             W = self.parameters[f'W{i}']
             b = self.parameters[f'b{i}']
             Z = np.dot(A_prev, W) + b
-            A = self._relu(Z)
+            A = self._activate(Z)
             self.cache[f'Z{i}'] = Z
             self.cache[f'A{i}'] = A
             A_prev = A
@@ -80,7 +97,7 @@ class NeuralNetwork:
         self.cache[f'Z{self.L - 1}'] = Z_out
         return A_out
 
-    def backward(self, y):
+    def _backward(self, y):
         m = y.shape[0]
         grads = {}
 
@@ -97,16 +114,14 @@ class NeuralNetwork:
 
         dA_prev = np.dot(dZ, self.parameters[f'W{self.L - 1}'].T)
 
-        # Обратное распространение по скрытым слоям
         for i in reversed(range(1, self.L - 1)):
             Z = self.cache[f'Z{i}']
             A_prev = self.cache[f'A{i - 1}']
-            dZ = dA_prev * self._relu_derivative(Z)
+            dZ = dA_prev * self._activate_derivative(Z)
             grads[f'dW{i}'] = np.dot(A_prev.T, dZ) / m
             grads[f'db{i}'] = np.sum(dZ, axis=0, keepdims=True) / m
             dA_prev = np.dot(dZ, self.parameters[f'W{i}'].T)
 
-        # Обновление параметров
         for i in range(1, self.L):
             self.parameters[f'W{i}'] -= self.lr * grads[f'dW{i}']
             self.parameters[f'b{i}'] -= self.lr * grads[f'db{i}']
@@ -126,7 +141,7 @@ class NeuralNetwork:
                 X_batch = X_train[batch_indices]
                 y_batch = y_train[batch_indices]
 
-                output = self.forward(X_batch)
+                output = self._forward(X_batch)
 
                 if self.task in ['binary_classification', 'multiclass_classification']:
                     loss = self._cross_entropy_loss(y_batch, output)
@@ -137,7 +152,7 @@ class NeuralNetwork:
                     loss = self._mse_loss(y_batch, output)
 
                 epoch_loss += loss * (end - start)
-                self.backward(y_batch)
+                self._backward(y_batch)
 
             avg_loss = epoch_loss / num_samples
             if self.task in ['binary_classification', 'multiclass_classification']:
@@ -147,7 +162,7 @@ class NeuralNetwork:
                 print(f"Epoch {epoch}, Loss: {avg_loss:.6f}")
 
     def predict(self, X):
-        output = self.forward(X)
+        output = self._forward(X)
         if self.task in ['binary_classification']:
             return (output > 0.5).astype(int)
         elif self.task in ['multiclass_classification']:
