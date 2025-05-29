@@ -1,5 +1,6 @@
 from torchvision.datasets import MNIST
 from torchvision import transforms
+import torchvision
 import matplotlib.pyplot as plt
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -7,6 +8,7 @@ import pytorch_lightning as pl
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
+import torchmetrics
 from utils import *
 import numpy as np
 
@@ -181,17 +183,25 @@ class NeuralNetwork:
             return output
         
 class LinearDataset(Dataset):
-    def __init__(self, n_samples=1000, noise=0.1):
-        self.x = np.random.rand(n_samples, 1) * 10
-        self.y = self.x + np.random.normal(0, noise, size=(n_samples, 1))
-        self.x = self.x.astype(np.float32)
-        self.y = self.y.astype(np.float32)
+    def __init__(self, n_samples=1000, noise=0.1, train=True):
+        X = np.random.rand(n_samples, 1) * 10
+        y = X + np.random.normal(0, noise, size=(n_samples, 1))
+
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42)
+        
+        if train:
+            self.X = torch.tensor(X_train, dtype=torch.float32)
+            self.y = torch.tensor(y_train, dtype=torch.float32)
+        else:
+            self.X = torch.tensor(X_test, dtype=torch.float32)
+            self.y = torch.tensor(y_test, dtype=torch.float32)
     
     def __len__(self):
-        return len(self.x)
+        return len(self.X)
     
     def __getitem__(self, idx):
-        return self.x[idx], self.y[idx]
+        return self.X[idx], self.y[idx]
 
 class LinearModel(pl.LightningModule):
     def __init__(self):
@@ -202,32 +212,114 @@ class LinearModel(pl.LightningModule):
             torch.nn.Linear(10, 1)
         )
         self.loss_fn = torch.nn.MSELoss()
+
+        self.train_mse = torchmetrics.MeanSquaredError()
+        self.train_r2 = torchmetrics.R2Score()
+
+        self.val_mse = torchmetrics.MeanSquaredError()
+        self.val_r2 = torchmetrics.R2Score()
+
+        self.test_mse = torchmetrics.MeanSquaredError()
+        self.test_r2 = torchmetrics.R2Score()
     
     def forward(self, x):
         return self.net(x)
     
+    def on_test_start(self):
+        self.all_preds = []
+        self.all_targets = []
+
+    def on_test_batch_end(self, outputs, batch, batch_idx):
+        preds = outputs["predictions"]
+        targets = outputs["targets"]
+        self.all_preds.append(preds)
+        self.all_targets.append(targets)
+    
+    def on_test_epoch_end(self):
+        all_preds = torch.cat(self.all_preds)
+        all_targets = torch.cat(self.all_targets)
+        self.predictions = all_preds
+        self.targets = all_targets
+        
+        self.log('test_mse', self.test_mse.compute())
+        self.log('test_r2', self.test_r2.compute())
+        self.test_mse.reset()
+        self.test_r2.reset()
+
     def training_step(self, batch, batch_idx):
         x, y = batch
-        y_pred = self(x)
+        y_pred = self(x).flatten()
+        y = y.flatten() 
         loss = self.loss_fn(y_pred, y)
+
+        self.train_mse.update(y_pred, y)
+        self.train_r2.update(y_pred, y)
+
         self.log('train_loss', loss)
         return loss
+
+    def on_train_epoch_end(self):
+        self.log('train_mse', self.train_mse.compute())
+        self.log('train_r2', self.train_r2.compute())
+
+        self.train_mse.reset()
+        self.train_r2.reset()
+
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        y_pred = self(x).flatten()
+        y = y.flatten() 
+        loss = self.loss_fn(y_pred, y)
+
+        self.val_mse.update(y_pred, y)
+        self.val_r2.update(y_pred, y)
+
+        self.log("val_loss", loss)
+        return loss
+
+    def on_validation_epoch_end(self):
+        self.log('val_mse', self.val_mse.compute())
+        self.log('val_r2', self.val_r2.compute())
+
+        self.val_mse.reset()
+        self.val_r2.reset()
+
+    def test_step(self, batch, batch_idx):
+        x, y = batch
+        y_pred = self(x).flatten()
+        y = y.flatten() 
+        loss = self.loss_fn(y_pred, y)
+
+        self.test_mse.update(y_pred, y)
+        self.test_r2.update(y_pred, y)
+
+        self.log('test_loss', loss)
+        return {'predictions': y_pred, 'targets': y}
     
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=0.01)
     
 class SinDataset(Dataset):
-    def __init__(self, n_samples=1000, noise=0.05):
-        self.x = np.random.rand(n_samples, 1) * 10
-        self.y = np.sin(self.x) + np.random.normal(0, noise, size=(n_samples, 1))
-        self.x = self.x.astype(np.float32)
-        self.y = self.y.astype(np.float32)
+    def __init__(self, n_samples=1000, noise=0.05, train=True):
+
+        X = np.random.rand(n_samples, 1) * 10
+        y = np.sin(X) + np.random.normal(0, noise, size=X.shape)
+
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42)
+        
+        if train:
+            self.X = torch.tensor(X_train, dtype=torch.float32)
+            self.y = torch.tensor(y_train, dtype=torch.float32)
+        else:
+            self.X = torch.tensor(X_test, dtype=torch.float32)
+            self.y = torch.tensor(y_test, dtype=torch.float32)
     
     def __len__(self):
-        return len(self.x)
+        return len(self.X)
     
     def __getitem__(self, idx):
-        return self.x[idx], self.y[idx]
+        return self.X[idx], self.y[idx]
 
 class SinModel(pl.LightningModule):
     def __init__(self):
@@ -240,16 +332,89 @@ class SinModel(pl.LightningModule):
             torch.nn.Linear(64, 1)
         )
         self.loss_fn = torch.nn.MSELoss()
+
+        self.train_mse = torchmetrics.MeanSquaredError()
+        self.train_r2 = torchmetrics.R2Score()
+
+        self.val_mse = torchmetrics.MeanSquaredError()
+        self.val_r2 = torchmetrics.R2Score()
+
+        self.test_mse = torchmetrics.MeanSquaredError()
+        self.test_r2 = torchmetrics.R2Score()
     
     def forward(self, x):
         return self.net(x)
     
+    def on_test_start(self):
+        self.all_preds = []
+        self.all_targets = []
+
+    def on_test_batch_end(self, outputs, batch, batch_idx):
+        preds = outputs["predictions"]
+        targets = outputs["targets"]
+        self.all_preds.append(preds)
+        self.all_targets.append(targets)
+    
+    def on_test_epoch_end(self):
+        all_preds = torch.cat(self.all_preds)
+        all_targets = torch.cat(self.all_targets)
+        self.predictions = all_preds
+        self.targets = all_targets
+
+        self.log('test_mse', self.test_mse.compute())
+        self.log('test_r2', self.test_r2.compute())
+        self.test_mse.reset()
+        self.test_r2.reset()
+
     def training_step(self, batch, batch_idx):
         x, y = batch
-        y_pred = self(x)
+        y_pred = self(x).flatten()
+        y = y.flatten() 
         loss = self.loss_fn(y_pred, y)
+
+        self.train_mse.update(y_pred, y)
+        self.train_r2.update(y_pred, y)
+
         self.log('train_loss', loss)
         return loss
+
+    def on_train_epoch_end(self):
+        self.log('train_mse', self.train_mse.compute())
+        self.log('train_r2', self.train_r2.compute())
+
+        self.train_mse.reset()
+        self.train_r2.reset()
+
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        y_pred = self(x).flatten()
+        y = y.flatten() 
+        loss = self.loss_fn(y_pred, y)
+
+        self.val_mse.update(y_pred, y)
+        self.val_r2.update(y_pred, y)
+
+        self.log("val_loss", loss)
+        return loss
+
+    def on_validation_epoch_end(self):
+        self.log('val_mse', self.val_mse.compute())
+        self.log('val_r2', self.val_r2.compute())
+
+        self.val_mse.reset()
+        self.val_r2.reset()
+
+    def test_step(self, batch, batch_idx):
+        x, y = batch
+        y_pred = self(x).flatten()
+        y = y.flatten() 
+        loss = self.loss_fn(y_pred, y)
+
+        self.test_mse.update(y_pred, y)
+        self.test_r2.update(y_pred, y)
+
+        self.log('test_loss', loss)
+        return {'predictions': y_pred, 'targets': y}
     
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=0.001)
@@ -267,10 +432,8 @@ class HousePricesDataset(Dataset):
         self.X_scaler = StandardScaler()
         self.y_scaler = StandardScaler()
 
-        # X = self.X_scaler.fit_transform(X)
-        # y = self.y_scaler.fit_transform(y)
-        X = z_score_normalizer(np.array(X))
-        y = z_score_normalizer(np.array(y))
+        X = self.X_scaler.fit_transform(X)
+        y = self.y_scaler.fit_transform(y)
         
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=0.2, random_state=42)
@@ -312,25 +475,19 @@ class HousePriceModel(pl.LightningModule):
             torch.nn.Linear(32, 1)
         )
         self.loss_fn = torch.nn.MSELoss()
+
+        self.train_mse = torchmetrics.MeanSquaredError()
+        self.train_r2 = torchmetrics.R2Score()
+
+        self.val_mse = torchmetrics.MeanSquaredError()
+        self.val_r2 = torchmetrics.R2Score()
+
+        self.test_mse = torchmetrics.MeanSquaredError()
+        self.test_r2 = torchmetrics.R2Score()
     
     def forward(self, x):
         return self.net(x)
     
-    def training_step(self, batch, batch_idx):
-        x, y = batch
-        y_pred = self(x)
-        loss = self.loss_fn(y_pred, y)
-        self.log('train_loss', loss)
-        return loss
-    
-    def test_step(self, batch, batch_idx):
-        x, y = batch
-        y_pred = self(x)
-        loss = self.loss_fn(y_pred, y)
-        preds = torch.argmax(y_pred, dim=1)
-        self.log('test_loss', loss)
-        return {'predictions': preds, 'targets': y}
-
     def on_test_start(self):
         self.all_preds = []
         self.all_targets = []
@@ -340,14 +497,67 @@ class HousePriceModel(pl.LightningModule):
         targets = outputs["targets"]
         self.all_preds.append(preds)
         self.all_targets.append(targets)
-
+    
     def on_test_epoch_end(self):
         all_preds = torch.cat(self.all_preds)
         all_targets = torch.cat(self.all_targets)
+        self.predictions = all_preds
+        self.targets = all_targets
 
-        self.test_predictions = all_preds
-        self.test_targets = all_targets
+        self.log('test_mse', self.test_mse.compute())
+        self.log('test_r2', self.test_r2.compute())
+        self.test_mse.reset()
+        self.test_r2.reset()
 
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        y_pred = self(x).flatten()
+        y = y.flatten() 
+        loss = self.loss_fn(y_pred, y)
+
+        self.train_mse.update(y_pred, y)
+        self.train_r2.update(y_pred, y)
+
+        self.log('train_loss', loss)
+        return loss
+
+    def on_train_epoch_end(self):
+        self.log('train_mse', self.train_mse.compute())
+        self.log('train_r2', self.train_r2.compute())
+
+        self.train_mse.reset()
+        self.train_r2.reset()
+
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        y_pred = self(x).flatten()
+        y = y.flatten() 
+        loss = self.loss_fn(y_pred, y)
+
+        self.val_mse.update(y_pred, y)
+        self.val_r2.update(y_pred, y)
+
+        self.log("val_loss", loss)
+        return loss
+
+    def on_validation_epoch_end(self):
+        self.log('val_mse', self.val_mse.compute())
+        self.log('val_r2', self.val_r2.compute())
+
+        self.val_mse.reset()
+        self.val_r2.reset()
+
+    def test_step(self, batch, batch_idx):
+        x, y = batch
+        y_pred = self(x).flatten()
+        y = y.flatten() 
+        loss = self.loss_fn(y_pred, y)
+
+        self.test_mse.update(y_pred, y)
+        self.test_r2.update(y_pred, y)
+
+        self.log('test_loss', loss)
+        return {'predictions': y_pred, 'targets': y}
     
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=0.001)
@@ -359,11 +569,11 @@ class TitanicDataset(Dataset):
         data = data.drop(["PassengerId", "Name", "Age", "Ticket", "Fare", "Cabin"],axis=1)
         data = pd.get_dummies(data=data, columns=['Sex', 'Embarked'], prefix=['sex', 'embarked'])
 
-        X = data.drop('Survived',axis=1)
-        y = data['Survived']
-        
-        scaler = StandardScaler()
-        X = scaler.fit_transform(X)
+        X = data.drop('Survived', axis=1).values
+        y = data['Survived'].values
+
+        self.scaler = StandardScaler()
+        X = self.scaler.fit_transform(X)
         
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=0.2, random_state=42)
@@ -374,7 +584,7 @@ class TitanicDataset(Dataset):
         else:
             self.x = X_test.astype(np.float32)
             self.y = y_test.astype(np.int64)
-    
+
     def __len__(self):
         return len(self.x)
     
@@ -382,7 +592,7 @@ class TitanicDataset(Dataset):
         return self.x[idx], self.y[idx]
 
 class TitanicModel(pl.LightningModule):
-    def __init__(self, input_size=6):
+    def __init__(self, input_size):
         super().__init__()
         self.net = torch.nn.Sequential(
             torch.nn.Linear(input_size, 32),
@@ -392,44 +602,130 @@ class TitanicModel(pl.LightningModule):
             torch.nn.Linear(16, 2)
         )
         self.loss_fn = torch.nn.CrossEntropyLoss()
-    
+        self.all_preds = []
+        self.all_targets = []
+
+        self.train_acc = torchmetrics.Accuracy(task='multiclass')
+        self.train_prec = torchmetrics.Precision(task='multiclass')
+        self.train_rec = torchmetrics.Recall(task='multiclass')
+        self.train_f1 = torchmetrics.F1Score(task='multiclass')
+
+        self.test_acc = torchmetrics.Accuracy(task='multiclass')
+        self.test_prec = torchmetrics.Precision(task='multiclass')
+        self.test_rec = torchmetrics.Recall(task='multiclass')
+        self.test_f1 = torchmetrics.F1Score(task='multiclass')
+
+        self.val_acc = torchmetrics.Accuracy(task='multiclass')
+        self.val_prec = torchmetrics.Precision(task='multiclass')
+        self.val_rec = torchmetrics.Recall(task='multiclass')
+        self.val_f1 = torchmetrics.F1Score(task='multiclass')
+
     def forward(self, x):
         return self.net(x)
-    
+
     def training_step(self, batch, batch_idx):
         x, y = batch
         y_pred = self(x)
+
+        preds = torch.argmax(y_pred, dim=1)
+        self.train_acc.update(preds, y)
+        self.train_prec.update(preds, y)
+        self.train_rec.update(preds, y)
+        self.train_f1.update(preds, y)
+
         loss = self.loss_fn(y_pred, y)
         self.log('train_loss', loss)
         return loss
-    
+
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        y_pred = self(x)
+        loss = self.loss_fn(y_pred, y)
+        self.log("val_loss", loss)
+
+        preds = torch.argmax(y_pred, dim=1)
+        self.val_acc.update(preds, y)
+        self.val_prec.update(preds, y)
+        self.val_rec.update(preds, y)
+        self.val_f1.update(preds, y)
+
+        return loss
+
     def test_step(self, batch, batch_idx):
         x, y = batch
         y_pred = self(x)
         loss = self.loss_fn(y_pred, y)
         preds = torch.argmax(y_pred, dim=1)
+
+        self.test_acc.update(preds, y)
+        self.test_prec.update(preds, y)
+        self.test_rec.update(preds, y)
+        self.test_f1.update(preds, y)
+
         self.log('test_loss', loss)
         return {'predictions': preds, 'targets': y}
+
+    def on_test_start(self):
+        self.all_preds = []
+        self.all_targets = []
+
+    def on_test_batch_end(self, outputs, batch, batch_idx):
+        self.all_preds.append(outputs["predictions"])
+        self.all_targets.append(outputs["targets"])
+
+    def on_train_epoch_end(self):
+        self.log("train_acc", self.train_acc.compute())
+        self.log("train_prec", self.train_prec.compute())
+        self.log("train_rec", self.train_rec.compute())
+        self.log("train_f1", self.train_f1.compute())
+
+        self.train_acc.reset()
+        self.train_prec.reset()
+        self.train_rec.reset()
+        self.train_f1.reset()
     
+    def on_test_epoch_end(self):
+        all_preds = torch.cat(self.all_preds)
+        all_targets = torch.cat(self.all_targets)
+
+        self.log("test_acc", self.test_acc.compute())
+        self.log("test_prec", self.test_prec.compute())
+        self.log("test_rec", self.test_rec.compute())
+        self.log("test_f1", self.test_f1.compute())
+
+        self.test_acc.reset()
+        self.test_prec.reset()
+        self.test_rec.reset()
+        self.test_f1.reset()
+
+        self.test_predictions = all_preds
+        self.test_targets = all_targets
+
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=0.001)
 
 class MNISTDataset(Dataset):
     def __init__(self, train=True):
-        self.mnist = MNIST(root='./data', train=train, download=True,
-                          transform=transforms.ToTensor())
-    
+        self.mnist = MNIST(
+            root='./data',
+            train=train,
+            download=True,
+            transform=transforms.Compose([
+                transforms.ToTensor()
+            ])
+        )
+
     def __len__(self):
         return len(self.mnist)
-    
+
     def __getitem__(self, idx):
-        x, y = self.mnist[idx]
-        return x.view(-1), y
+        return self.mnist[idx]
 
 class MNISTModel(pl.LightningModule):
     def __init__(self):
         super().__init__()
         self.net = torch.nn.Sequential(
+            torch.nn.Flatten(),  
             torch.nn.Linear(784, 256),
             torch.nn.ReLU(),
             torch.nn.Linear(256, 128),
@@ -437,6 +733,21 @@ class MNISTModel(pl.LightningModule):
             torch.nn.Linear(128, 10)
         )
         self.loss_fn = torch.nn.CrossEntropyLoss()
+
+        self.train_acc = torchmetrics.Accuracy(task='multiclass', num_classes=10)
+        self.train_prec = torchmetrics.Precision(task='multiclass', num_classes=10)
+        self.train_rec = torchmetrics.Recall(task='multiclass', num_classes=10)
+        self.train_f1 = torchmetrics.F1Score(task='multiclass', num_classes=10)
+
+        self.test_acc = torchmetrics.Accuracy(task='multiclass', num_classes=10)
+        self.test_prec = torchmetrics.Precision(task='multiclass', num_classes=10)
+        self.test_rec = torchmetrics.Recall(task='multiclass', num_classes=10)
+        self.test_f1 = torchmetrics.F1Score(task='multiclass', num_classes=10)
+
+        self.val_acc = torchmetrics.Accuracy(task='multiclass', num_classes=10)
+        self.val_prec = torchmetrics.Precision(task='multiclass', num_classes=10)
+        self.val_rec = torchmetrics.Recall(task='multiclass', num_classes=10)
+        self.val_f1 = torchmetrics.F1Score(task='multiclass', num_classes=10)
     
     def forward(self, x):
         return self.net(x)
@@ -444,6 +755,13 @@ class MNISTModel(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         x, y = batch
         y_pred = self(x)
+
+        preds = torch.argmax(y_pred, dim=1)
+        self.train_acc.update(preds, y)
+        self.train_prec.update(preds, y)
+        self.train_rec.update(preds, y)
+        self.train_f1.update(preds, y)
+
         loss = self.loss_fn(y_pred, y)
         self.log('train_loss', loss)
         return loss
@@ -453,8 +771,177 @@ class MNISTModel(pl.LightningModule):
         y_pred = self(x)
         loss = self.loss_fn(y_pred, y)
         preds = torch.argmax(y_pred, dim=1)
+
+        self.test_acc.update(preds, y)
+        self.test_prec.update(preds, y)
+        self.test_rec.update(preds, y)
+        self.test_f1.update(preds, y)
+        
         self.log('test_loss', loss)
         return {'predictions': preds, 'targets': y}
+
+    def on_test_start(self):
+        self.all_preds = []
+        self.all_targets = []
+
+    def on_test_batch_end(self, outputs, batch, batch_idx):
+        self.all_preds.append(outputs["predictions"])
+        self.all_targets.append(outputs["targets"])
+
+    def on_test_epoch_end(self):
+        all_preds = torch.cat(self.all_preds)
+        all_targets = torch.cat(self.all_targets)
+
+        self.log("train_acc", self.train_acc.compute())
+        self.log("train_prec", self.train_prec.compute())
+        self.log("train_rec", self.train_rec.compute())
+        self.log("train_f1", self.train_f1.compute())
+
+        self.train_acc.reset()
+        self.train_prec.reset()
+        self.train_rec.reset()
+        self.train_f1.reset()
+
+        self.test_predictions = all_preds
+        self.test_targets = all_targets
     
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        y_pred = self(x)
+
+        preds = torch.argmax(y_pred, dim=1)
+        self.val_acc.update(preds, y)
+        self.val_prec.update(preds, y)
+        self.val_rec.update(preds, y)
+        self.val_f1.update(preds, y)
+
+        loss = self.loss_fn(y_pred, y)
+        self.log("val_loss", loss)
+        return loss
+        
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=0.001)
+    
+class ResNetTransferLearning(pl.LightningModule):
+    def __init__(self, num_classes=10):
+        super().__init__()
+        self.model = torchvision.models.resnet18(pretrained=True)
+        for param in self.model.parameters():
+            param.requires_grad = False
+
+        self.model.fc = torch.nn.Linear(self.model.fc.in_features, num_classes)
+
+        self.loss_fn = torch.nn.CrossEntropyLoss()
+
+        task = 'multiclass' if num_classes > 2 else 'binary'
+        self.train_acc = torchmetrics.Accuracy(task=task, num_classes=num_classes)
+        self.train_prec = torchmetrics.Precision(task=task, num_classes=num_classes)
+        self.train_rec = torchmetrics.Recall(task=task, num_classes=num_classes)
+        self.train_f1 = torchmetrics.F1Score(task=task, num_classes=num_classes)
+
+        self.val_acc = torchmetrics.Accuracy(task=task, num_classes=num_classes)
+        self.val_prec = torchmetrics.Precision(task=task, num_classes=num_classes)
+        self.val_rec = torchmetrics.Recall(task=task, num_classes=num_classes)
+        self.val_f1 = torchmetrics.F1Score(task=task, num_classes=num_classes)
+
+        self.test_acc = torchmetrics.Accuracy(task=task, num_classes=num_classes)
+        self.test_prec = torchmetrics.Precision(task=task, num_classes=num_classes)
+        self.test_rec = torchmetrics.Recall(task=task, num_classes=num_classes)
+        self.test_f1 = torchmetrics.F1Score(task=task, num_classes=num_classes)
+
+    def forward(self, x):
+        x = x.repeat(1, 3, 1, 1)
+        return self.model(x)
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        y_pred = self(x)
+        loss = self.loss_fn(y_pred, y)
+
+        preds = torch.argmax(y_pred, dim=1)
+        self.train_acc(preds, y)
+        self.train_prec(preds, y)
+        self.train_rec(preds, y)
+        self.train_f1(preds, y)
+
+        self.log('train_loss', loss)
+        return loss
+
+    def on_training_epoch_end(self):
+        self.log("train_acc", self.train_acc.compute())
+        self.log("train_prec", self.train_prec.compute())
+        self.log("train_rec", self.train_rec.compute())
+        self.log("train_f1", self.train_f1.compute())
+
+        self.train_acc.reset()
+        self.train_prec.reset()
+        self.train_rec.reset()
+        self.train_f1.reset()
+
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        y_pred = self(x)
+        loss = self.loss_fn(y_pred, y)
+
+        preds = torch.argmax(y_pred, dim=1)
+        self.val_acc(preds, y)
+        self.val_prec(preds, y)
+        self.val_rec(preds, y)
+        self.val_f1(preds, y)
+
+        self.log('val_loss', loss)
+        return loss
+
+    def on_validation_epoch_end(self):
+        self.log("val_acc", self.val_acc.compute())
+        self.log("val_prec", self.val_prec.compute())
+        self.log("val_rec", self.val_rec.compute())
+        self.log("val_f1", self.val_f1.compute())
+
+        self.val_acc.reset()
+        self.val_prec.reset()
+        self.val_rec.reset()
+        self.val_f1.reset()
+
+    def test_step(self, batch, batch_idx):
+        x, y = batch
+        y_pred = self(x)
+        loss = self.loss_fn(y_pred, y)
+
+        preds = torch.argmax(y_pred, dim=1)
+        self.test_acc(preds, y)
+        self.test_prec(preds, y)
+        self.test_rec(preds, y)
+        self.test_f1(preds, y)
+
+        self.log('test_loss', loss)
+        return {'predictions': preds, 'targets': y}
+
+    def on_test_start(self):
+        self.all_preds = []
+        self.all_targets = []
+
+    def on_test_batch_end(self, outputs, batch, batch_idx):
+        self.all_preds.append(outputs["predictions"])
+        self.all_targets.append(outputs["targets"])
+
+    def on_test_epoch_end(self):
+        all_preds = torch.cat(self.all_preds)
+        all_targets = torch.cat(self.all_targets)
+
+        self.log("test_acc", self.test_acc.compute())
+        self.log("test_prec", self.test_prec.compute())
+        self.log("test_rec", self.test_rec.compute())
+        self.log("test_f1", self.test_f1.compute())
+
+        self.test_predictions = all_preds
+        self.test_targets = all_targets
+
+        self.test_acc.reset()
+        self.test_prec.reset()
+        self.test_rec.reset()
+        self.test_f1.reset()
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.Adam(self.model.fc.parameters(), lr=0.001)
+        return optimizer
