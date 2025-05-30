@@ -947,18 +947,40 @@ class ResNetTransferLearning(pl.LightningModule):
         return optimizer
     
 class Autoencoder(pl.LightningModule):
-    def __init__(self, latent_dim=32):
+    def __init__(self, latent_dim=64):
         super().__init__()
-        self.latent_dim = latent_dim
+        # self.latent_dim = latent_dim
+        # self.encoder = torch.nn.Sequential(
+        #     torch.nn.Linear(28 * 28, 512),
+        #     torch.nn.ReLU(),
+        #     torch.nn.Linear(512, 256),
+        #     torch.nn.ReLU(),
+        #     torch.nn.Linear(256, latent_dim)
+        # )
+        # self.decoder = torch.nn.Sequential(
+        #     torch.nn.Linear(latent_dim, 256),
+        #     torch.nn.ReLU(),
+        #     torch.nn.Linear(256, 512),
+        #     torch.nn.ReLU(),
+        #     torch.nn.Linear(512, 28 * 28),
+        #     torch.nn.Sigmoid()
+        # )
         self.encoder = torch.nn.Sequential(
-            torch.nn.Linear(28 * 28, 512),
+            torch.nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1),  # [1, 28, 28] -> [16, 14, 14]
             torch.nn.ReLU(),
-            torch.nn.Linear(512, latent_dim),
+            torch.nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),  # [32, 7, 7]
+            torch.nn.ReLU(),
+            torch.nn.Flatten(),
+            torch.nn.Linear(32 * 7 * 7, latent_dim)
         )
+
+        # Decoder
         self.decoder = torch.nn.Sequential(
-            torch.nn.Linear(latent_dim, 512),
+            torch.nn.Linear(latent_dim, 32 * 7 * 7),
+            torch.nn.Unflatten(1, (32, 7, 7)),
+            torch.nn.ConvTranspose2d(32, 16, kernel_size=3, stride=2, padding=1, output_padding=1),  # -> [16, 14, 14]
             torch.nn.ReLU(),
-            torch.nn.Linear(512, 28 * 28),
+            torch.nn.ConvTranspose2d(16, 1, kernel_size=3, stride=2, padding=1, output_padding=1),  # -> [1, 28, 28]
             torch.nn.Sigmoid()
         )
 
@@ -984,30 +1006,32 @@ class Autoencoder(pl.LightningModule):
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=1e-3)
     
-def plot_reconstructions(model, dataset, num_images=5):
+def plot_reconstructions(model, dataloader, num_images=5):
     model.eval()
-    dataiter = iter(dataset)
+    dataiter = iter(dataloader)
     images, labels = next(dataiter)
 
-    if len(images) < num_images:
-        print(f"Ошибка: Недостаточно изображений ({len(images)} вместо {num_images})")
+    if isinstance(labels, int):  # Если случайно попало одно изображение
+        print("Ошибка: вы передали один элемент, а не батч.")
         return
+
+    indices = torch.randperm(len(images))[:num_images]
+    images = images[indices]
+    labels = labels[indices]
 
     with torch.no_grad():
         outputs = model(images)
 
     plt.figure(figsize=(10, 4))
     for i in range(num_images):
-        # Оригинал
         plt.subplot(2, num_images, i + 1)
         plt.imshow(images[i].view(28, 28).cpu().numpy(), cmap='gray')
+        plt.title(f"{labels[i]}")
         plt.axis('off')
 
-        # Реконструкция
         plt.subplot(2, num_images, i + num_images + 1)
         plt.imshow(outputs[i].view(28, 28).cpu().numpy(), cmap='gray')
         plt.axis('off')
-
     plt.show()
 
 def get_latent_representations(model, loader):
@@ -1026,8 +1050,12 @@ class Classifier(pl.LightningModule):
     def __init__(self, input_dim=32, num_classes=10):
         super().__init__()
         self.net = torch.nn.Sequential(
-            torch.nn.Linear(input_dim, 64),
+            torch.nn.Linear(input_dim, 128),
             torch.nn.ReLU(),
+            torch.nn.Dropout(0.3),
+            torch.nn.Linear(128, 64),
+            torch.nn.ReLU(),
+            torch.nn.Dropout(0.3),
             torch.nn.Linear(64, num_classes)
         )
         self.loss_fn = torch.nn.CrossEntropyLoss()
@@ -1052,14 +1080,14 @@ class Classifier(pl.LightningModule):
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=1e-3)
 
-def shift_latent_code(model, classifier, target_class, num_steps=10, step_size=0.1):
-    z = torch.randn(1, 32, requires_grad=True)
+def shift_latent_code(classifier, target_class, num_steps=10, step_size=0.1):
+    z = torch.randn(1, 64, requires_grad=True)
     optimizer = torch.optim.Adam([z], lr=step_size)
 
     for _ in range(num_steps):
         optimizer.zero_grad()
         logits = classifier(z)
-        loss = -logits[0, target_class]
+        loss = -logits[0, target_class] + 0.01 * torch.norm(z)
         loss.backward()
         optimizer.step()
 
