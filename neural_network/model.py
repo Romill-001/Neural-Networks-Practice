@@ -3,7 +3,7 @@ from torchvision import transforms
 import torchvision
 import matplotlib.pyplot as plt
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, TensorDataset
 import pytorch_lightning as pl
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
@@ -945,3 +945,123 @@ class ResNetTransferLearning(pl.LightningModule):
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.model.fc.parameters(), lr=0.001)
         return optimizer
+    
+class Autoencoder(pl.LightningModule):
+    def __init__(self, latent_dim=32):
+        super().__init__()
+        self.latent_dim = latent_dim
+        self.encoder = torch.nn.Sequential(
+            torch.nn.Linear(28 * 28, 512),
+            torch.nn.ReLU(),
+            torch.nn.Linear(512, latent_dim),
+        )
+        self.decoder = torch.nn.Sequential(
+            torch.nn.Linear(latent_dim, 512),
+            torch.nn.ReLU(),
+            torch.nn.Linear(512, 28 * 28),
+            torch.nn.Sigmoid()
+        )
+
+    def encode(self, x):
+        return self.encoder(x)
+
+    def decode(self, z):
+        return self.decoder(z)
+
+    def forward(self, x):
+        z = self.encode(x.view(-1, 28*28))
+        return self.decode(z).view(-1, 1, 28, 28)
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        x = x.view(-1, 28 * 28)
+        z = self.encoder(x)
+        x_hat = self.decoder(z)
+        loss = torch.nn.functional.mse_loss(x_hat, x)
+        self.log("ae_loss", loss)
+        return loss
+
+    def configure_optimizers(self):
+        return torch.optim.Adam(self.parameters(), lr=1e-3)
+    
+def plot_reconstructions(model, dataset, num_images=5):
+    model.eval()
+    dataiter = iter(dataset)
+    images, labels = next(dataiter)
+
+    if len(images) < num_images:
+        print(f"Ошибка: Недостаточно изображений ({len(images)} вместо {num_images})")
+        return
+
+    with torch.no_grad():
+        outputs = model(images)
+
+    plt.figure(figsize=(10, 4))
+    for i in range(num_images):
+        # Оригинал
+        plt.subplot(2, num_images, i + 1)
+        plt.imshow(images[i].view(28, 28).cpu().numpy(), cmap='gray')
+        plt.axis('off')
+
+        # Реконструкция
+        plt.subplot(2, num_images, i + num_images + 1)
+        plt.imshow(outputs[i].view(28, 28).cpu().numpy(), cmap='gray')
+        plt.axis('off')
+
+    plt.show()
+
+def get_latent_representations(model, loader):
+    model.eval()
+    latents = []
+    labels = []
+    with torch.no_grad():
+        for x_batch, y_batch in loader:
+            x_flat = x_batch.view(-1, 28 * 28)
+            z = model.encode(x_flat)
+            latents.append(z)
+            labels.append(y_batch)
+    return torch.cat(latents), torch.cat(labels)
+
+class Classifier(pl.LightningModule):
+    def __init__(self, input_dim=32, num_classes=10):
+        super().__init__()
+        self.net = torch.nn.Sequential(
+            torch.nn.Linear(input_dim, 64),
+            torch.nn.ReLU(),
+            torch.nn.Linear(64, num_classes)
+        )
+        self.loss_fn = torch.nn.CrossEntropyLoss()
+
+    def forward(self, x):
+        return self.net(x)
+
+    def training_step(self, batch, batch_idx):
+        z, y = batch
+        y_pred = self(z)
+        loss = self.loss_fn(y_pred, y)
+        self.log("cls_loss", loss)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        z, y = batch
+        y_pred = self(z)
+        acc = (y_pred.argmax(dim=1) == y).float().mean()
+        self.log("val_acc", acc)
+        return acc
+
+    def configure_optimizers(self):
+        return torch.optim.Adam(self.parameters(), lr=1e-3)
+
+def shift_latent_code(model, classifier, target_class, num_steps=10, step_size=0.1):
+    z = torch.randn(1, 32, requires_grad=True)
+    optimizer = torch.optim.Adam([z], lr=step_size)
+
+    for _ in range(num_steps):
+        optimizer.zero_grad()
+        logits = classifier(z)
+        loss = -logits[0, target_class]
+        loss.backward()
+        optimizer.step()
+
+    return z.detach()
+
