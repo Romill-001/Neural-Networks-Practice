@@ -605,20 +605,20 @@ class TitanicModel(pl.LightningModule):
         self.all_preds = []
         self.all_targets = []
 
-        self.train_acc = torchmetrics.Accuracy(task='multiclass')
-        self.train_prec = torchmetrics.Precision(task='multiclass')
-        self.train_rec = torchmetrics.Recall(task='multiclass')
-        self.train_f1 = torchmetrics.F1Score(task='multiclass')
+        self.train_acc = torchmetrics.Accuracy(task='multiclass', num_classes=2)
+        self.train_prec = torchmetrics.Precision(task='multiclass', num_classes=2)
+        self.train_rec = torchmetrics.Recall(task='multiclass', num_classes=2)
+        self.train_f1 = torchmetrics.F1Score(task='multiclass', num_classes=2)
 
-        self.test_acc = torchmetrics.Accuracy(task='multiclass')
-        self.test_prec = torchmetrics.Precision(task='multiclass')
-        self.test_rec = torchmetrics.Recall(task='multiclass')
-        self.test_f1 = torchmetrics.F1Score(task='multiclass')
+        self.test_acc = torchmetrics.Accuracy(task='multiclass', num_classes=2)
+        self.test_prec = torchmetrics.Precision(task='multiclass', num_classes=2)
+        self.test_rec = torchmetrics.Recall(task='multiclass', num_classes=2)
+        self.test_f1 = torchmetrics.F1Score(task='multiclass', num_classes=2)
 
-        self.val_acc = torchmetrics.Accuracy(task='multiclass')
-        self.val_prec = torchmetrics.Precision(task='multiclass')
-        self.val_rec = torchmetrics.Recall(task='multiclass')
-        self.val_f1 = torchmetrics.F1Score(task='multiclass')
+        self.val_acc = torchmetrics.Accuracy(task='multiclass', num_classes=2)
+        self.val_prec = torchmetrics.Precision(task='multiclass', num_classes=2)
+        self.val_rec = torchmetrics.Recall(task='multiclass', num_classes=2)
+        self.val_f1 = torchmetrics.F1Score(task='multiclass', num_classes=2)
 
     def forward(self, x):
         return self.net(x)
